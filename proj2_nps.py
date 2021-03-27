@@ -189,7 +189,28 @@ def get_nearby_places(site_object):
     dict
         a converted API return from MapQuest API
     '''
-    pass
+    endpoint = "http://www.mapquestapi.com/search/v2/radius"
+    params = {"key": secrets.API_KEY,
+              "origin": site_object.zipcode,
+              "radius": 10,
+              "maxMatches": 10,
+              "ambiguities": "ignore",
+              "outFormat": "json"}
+    unique_key = construct_unique_key(endpoint, params)
+    if unique_key in CACHE_DICT:
+        print("Using cache")
+        out_dict = CACHE_DICT[unique_key]
+        # print(out_dict)
+        return out_dict
+    else:
+        print("Fetching")
+        resp = requests.get(endpoint, params=params)
+        if resp.status_code != 200:
+            raise Exception("Access Failed!")
+        CACHE_DICT[unique_key] = resp.json()
+        save_cache(CACHE_DICT, CACHE_FILENAME)
+        # print(CACHE_DICT[unique_key])
+        return CACHE_DICT[unique_key]
 
 
 def construct_unique_key(base_url, params, connector="_"):
@@ -212,7 +233,7 @@ def construct_unique_key(base_url, params, connector="_"):
     """
     out_key = base_url
     for key in params:
-        out_key =+ connector + f"{key}{connector}{params[key]}"
+        out_key += connector + f"{key}{connector}{params[key]}"
 
     return out_key
 
@@ -262,15 +283,76 @@ def save_cache(cache_dict, filename):
         wf.write(json.dumps(cache_dict))
 
 
+def process_part_4(result_dict):
+    """
+    Helper function for part 4. Extract relevant info and print it.
+
+    Parameters
+    ----------
+    result_dict: dict
+        The raw search result as a json dict.
+
+    Returns
+    -------
+    None
+    """
+    json_dicts = result_dict["searchResults"]
+    # extracted_dicts = []
+    for json_dict in json_dicts:
+        extracted_dict = dict()
+        extracted_dict["name"] = json_dict.get("name", "no name")
+        if "group_sic_code_name" in json_dict["fields"]:
+            extracted_dict["category"] = json_dict["fields"]["group_sic_code_name"]
+        elif "group_sic_code_name_ext" in json_dict["fields"]:
+            extracted_dict["category"] = json_dict["fields"]["group_sic_code_name_ext"]
+        else:
+            extracted_dict["category"] = "no category"
+        extracted_dict["address"] = json_dict.get("address", "no address")
+        extracted_dict["city"] = json_dict["fields"].get("city", "no city")
+
+        for key in extracted_dict:
+            if extracted_dict[key] == "":
+                extracted_dict[key] = f"no {key}"
+
+        print(f"- {extracted_dict['name']} ({extracted_dict['category']}): {extracted_dict['address']}, " +
+              f"{extracted_dict['city']}")
+
+
+CACHE_FILENAME = "cache.json"
+CACHE_DICT = open_cache(CACHE_FILENAME)
+
+
 if __name__ == "__main__":
     # # a test for missing info
     # park_url = "https://www.nps.gov/yose/index.htm"
     # site = get_site_instance(park_url)
     # print(site.info())
 
-    # part 3
-    CACHE_FILENAME = "cache.json"
-    CACHE_DICT = open_cache(CACHE_FILENAME)
+    # # part 3
+    # # CACHE_FILENAME = "cache.json"
+    # # CACHE_DICT = open_cache(CACHE_FILENAME)
+    # state_url_dict = build_state_url_dict()
+    #
+    # while True:
+    #     user_input = input("Enter a state name (e.g. Michigan, michigan) or \"exit\": ")
+    #     if user_input == "exit":
+    #         break
+    #
+    #     state_url = state_url_dict[user_input.lower()]
+    #     title = f"List of national sites in {user_input}"
+    #     sites = get_sites_for_state(state_url)
+    #     print("-" * len(title))
+    #     print(title)
+    #     print("-" * len(title))
+    #     for i, site in enumerate(sites):
+    #         print(f"[{i + 1}] {site.info()}")
+
+    # # part 4: a test
+    # site_mi = get_site_instance('https://www.nps.gov/slbe/index.htm')
+    # nearby_mi = get_nearby_places(site_mi)
+    # process_part_4(nearby_mi)
+
+    # part 5: the main control logic
     state_url_dict = build_state_url_dict()
 
     while True:
@@ -278,7 +360,14 @@ if __name__ == "__main__":
         if user_input == "exit":
             break
 
-        state_url = state_url_dict[user_input.lower()]
+        # step 1 & 2
+        state_key = user_input.lower()
+        if state_key not in state_url_dict:
+            print("[Error] Enter a proper state name")
+            print()
+            continue
+
+        state_url = state_url_dict[state_key]
         title = f"List of national sites in {user_input}"
         sites = get_sites_for_state(state_url)
         print("-" * len(title))
@@ -286,3 +375,37 @@ if __name__ == "__main__":
         print("-" * len(title))
         for i, site in enumerate(sites):
             print(f"[{i + 1}] {site.info()}")
+
+        # step 3 & 4
+        while True:
+            user_input = input("Choose the number for detail search or \"exit\" or \"back\": ")
+            if user_input in ["exit", "back"]:
+                break
+
+            if not user_input.isnumeric():
+                print("[Error] Invalid input")
+                print("-" * 40)
+                continue
+
+            number = int(user_input)
+            if number > len(sites) or number <= 0:
+                print("[Error] Invalid input")
+                print("-" * 40)
+                continue
+
+            index = number - 1
+            nearby_places = get_nearby_places(sites[index])
+            title = f"Places near {sites[index].name}"
+            print("-" * len(title))
+            print(title)
+            print("-" * len(title))
+            process_part_4(nearby_places)
+
+        if user_input == "back":
+            continue
+
+        if user_input == "exit":
+            break
+
+    print()
+    print("Bye!")
